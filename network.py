@@ -80,15 +80,16 @@ class bottle_neck_up(torch.nn.Module):
 
 
 class encoder(torch.nn.Module):
-    def __init__(self, blocks, latent_dim, base_exp, last_down_exp):
+    def __init__(self, blocks, latent_dim, base_exp, last_down_exp, im_channel=3):
         super().__init__()
         self.num_block = len(blocks)
         self.base_exp = base_exp
         self.last_down_exp = last_down_exp
+        self.im_channel = im_channel
         indims = [2 ** i for i in range(self.base_exp, self.base_exp+self.num_block)]
         middims = [2 ** i for i in range(self.base_exp, self.base_exp+self.num_block)]
         outdims = indims[1:] + [2 ** (self.base_exp+self.num_block)]
-        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(3, indims[0], 3, padding=1), torch.nn.MaxPool2d(3, 2, 1))
+        self.layer1 = torch.nn.Sequential(torch.nn.Conv2d(im_channel, indims[0], 3, padding=1), torch.nn.MaxPool2d(3, 2, 1))
         for i in range(self.num_block):
             setattr(self, f'layer{2+i}', torch.nn.Sequential(*([bottle_neck_down(indims[i], middims[i], outdims[i], True)] + [bottle_neck_down(outdims[i], middims[i], outdims[i]) for _ in range(blocks[i]-1)])))
         self.last_pool = torch.nn.MaxPool2d(2 ** self.last_down_exp, 2 ** self.last_down_exp, 0)
@@ -112,11 +113,12 @@ class encoder(torch.nn.Module):
 
 
 class decoder(torch.nn.Module):
-    def __init__(self, blocks, latent_dim, base_exp, first_up_exp):
+    def __init__(self, blocks, latent_dim, base_exp, first_up_exp, im_channel=3):
         super().__init__()
         self.num_block = len(blocks)
         self.base_exp = base_exp
         self.first_up_exp = first_up_exp
+        self.im_channel = im_channel
         outdims = [2 ** i for i in range(self.base_exp, self.base_exp+self.num_block)]
         middims = [2 ** i for i in range(self.base_exp, self.base_exp+self.num_block)]
         indims = outdims[1:] + [2 ** (self.base_exp+self.num_block)]
@@ -128,7 +130,7 @@ class decoder(torch.nn.Module):
         self.layer1 = torch.nn.Sequential(torch.nn.Upsample(scale_factor=2 ** (self.first_up_exp+1), mode="bilinear"), torch.nn.Conv2d(indims[0], indims[0], 3, padding=1))
         for i in range(self.num_block):
             setattr(self, f'layer{2+i}', torch.nn.Sequential(*([bottle_neck_up(indims[i], middims[i], outdims[i], True)] + [bottle_neck_up(outdims[i], middims[i], outdims[i]) for _ in range(blocks[i]-1)])))   
-        self.layer_out = torch.nn.Conv2d(outdims[-1], 3, 3, padding=1)
+        self.layer_out = torch.nn.Conv2d(outdims[-1], im_channel, 3, padding=1)
     
     def forward(self, z):
         B, _ = z.shape
@@ -141,11 +143,11 @@ class decoder(torch.nn.Module):
         return x
     
 class vae(torch.nn.Module):
-    def __init__(self, encoder_blocks, decoder_blocks, encoder_base_exp, decoder_base_exp, latent_dim, last_down):
+    def __init__(self, encoder_blocks, decoder_blocks, encoder_base_exp, decoder_base_exp, latent_dim, last_down, im_channel):
         super().__init__()
         self.latent_dim = latent_dim
-        self.encoder = encoder(encoder_blocks, latent_dim, encoder_base_exp, last_down)
-        self.decoder = decoder(decoder_blocks, latent_dim, decoder_base_exp, last_down)
+        self.encoder = encoder(encoder_blocks, latent_dim, encoder_base_exp, last_down, im_channel)
+        self.decoder = decoder(decoder_blocks, latent_dim, decoder_base_exp, last_down, im_channel)
 
 
     def sample(self, mu, log_var):

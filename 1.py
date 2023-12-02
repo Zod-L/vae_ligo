@@ -1,4 +1,9 @@
 import cv2
+import os
 
-im = cv2.imread("checkpoints/sub_2.0/3683-1231-4-5-128-l1-l2/80.png")
-print(im.min(), im.max())
+for root, dirs, files in os.walk("/home/otn7723/gravityspy/processed"):
+    if len(dirs) > 0:
+        print(root)
+        print(dirs)
+        print(files)
+        print()
