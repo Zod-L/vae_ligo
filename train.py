@@ -30,8 +30,8 @@ def init_(m):
             m.bias.data.fill_(0)
 
 
-def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_epoch, pretrain_path, \
-         encoder_blocks, decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down):
+def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_epoch, pretrain_path, encoder_blocks, \
+         decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down, use_vae):
     
 
     if world_size > 1:
@@ -50,7 +50,7 @@ def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_
 
 
 
-    model = vae(encoder_blocks, decoder_blocks, encoder_base, decoder_base, latent_dim, last_down, im_channel)
+    model = vae(encoder_blocks, decoder_blocks, encoder_base, decoder_base, latent_dim, last_down, im_channel, use_vae)
     #model.apply(init_)
 
     if rank == 0:
@@ -87,7 +87,7 @@ def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_
                 im = torch.cat([dataset[i][1].unsqueeze(0) for i in test_samples], dim=0).to(rank)
                 N, C, H, W = im.shape
                 thresh_im = torch.cat([dataset[i][0].unsqueeze(0) for i in test_samples], dim=0).to(rank)
-                pred, _, _ = model(im)
+                pred, _, _ = model(thresh_im)
 
                 im = torch.cat([im[:, 3*i : 3*(i+1), ...] for i in range(C // 3)], 0)
                 thresh_im = torch.cat([thresh_im[:, 3*i : 3*(i+1), ...] for i in range(C // 3)], 0)
@@ -112,12 +112,12 @@ def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_
             loss_percept = 0
             for i in range(C // 3):
                 loss_percept += precept_weight * loss_fn_alex(F.interpolate(pred[:, 3*i : 3*(i+1), ...], 64), F.interpolate(im[:, 3*i : 3*(i+1), ...], 64)).mean()
-            loss_kl = kl_weight * kl_loss(mu, log_var)
+            loss_kl = kl_weight * kl_loss(mu, log_var) if use_vae else 0
             loss = loss_im_l2 + loss_im_l1 + loss_kl + loss_percept
 
             total_im_loss_l2 += loss_im_l2.item()
             total_im_loss_l1 += loss_im_l1.item()
-            total_kl_loss += loss_kl.item()
+            total_kl_loss += loss_kl.item() if use_vae else 0 
             total_percept_loss += loss_percept.item()
             total_loss += loss.item()
 
@@ -137,12 +137,12 @@ def main(rank, world_size, batch, start_epoch, epoch, data_path, out_path, save_
         print(f"epoch : {epoch} loss_im_l2 : {total_im_loss_l2 : .5f} total_percept_loss : {total_percept_loss}  loss_kl : {total_kl_loss : .5f} loss : {total_loss : .5f}")
 
 if __name__ == "__main__":
-    os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     world_size = 1
-    batch = 32
+    batch = 8
     epoch = 200
     data_path = "../gravityspy/processed/"
-    out_path = "./checkpoints/sub_2.0/1231-1231-4-5-128-threshold0-percept-4scale"
+    out_path = "./checkpoints/sub_2.0/1231-1231-4-5-128-threshold0-percept-4scale-ae"
     pretrain_path = None
     save_epoch = 20
     start_epoch = 0
@@ -156,14 +156,14 @@ if __name__ == "__main__":
     precept_weight = 2e-1
     threshold = 0
     last_down = 2
-
+    use_vae = True
 
 
     if not os.path.exists(out_path):
         os.makedirs(out_path)
     if world_size > 1:
         mp.spawn(main, args=(world_size, batch, start_epoch, epoch, data_path, out_path, save_epoch, pretrain_path, encoder_blocks,\
-                        decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down), nprocs=world_size)
+                        decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down, use_vae), nprocs=world_size)
     else:
         main(0, world_size, batch, start_epoch, epoch, data_path, out_path, save_epoch, pretrain_path, encoder_blocks,\
-                        decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down)
+                        decoder_blocks, encoder_base, decoder_base, latent_dim, l1_weight, kl_weight, precept_weight, threshold, last_down, use_vae)

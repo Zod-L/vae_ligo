@@ -80,7 +80,7 @@ class bottle_neck_up(torch.nn.Module):
 
 
 class encoder(torch.nn.Module):
-    def __init__(self, blocks, latent_dim, base_exp, last_down_exp, im_channel=3):
+    def __init__(self, blocks, latent_dim, base_exp, last_down_exp, im_channel=3, use_vae=True):
         super().__init__()
         self.num_block = len(blocks)
         self.base_exp = base_exp
@@ -97,7 +97,7 @@ class encoder(torch.nn.Module):
         #self.last_pool = torch.nn.Conv2d(2 ** self.last_down_exp, 2 ** self.last_down_exp, 0)
 
         self.mean_fc = torch.nn.Linear(int(outdims[-1] * pow(512 / pow(2, self.num_block+1+self.last_down_exp), 2)), latent_dim)
-        self.var_fc = torch.nn.Linear(int(outdims[-1] * pow(512 / pow(2, self.num_block+1+self.last_down_exp), 2)), latent_dim)
+        self.var_fc = torch.nn.Linear(int(outdims[-1] * pow(512 / pow(2, self.num_block+1+self.last_down_exp), 2)), latent_dim) if use_vae else None
 
 
     def forward(self, x):
@@ -106,7 +106,7 @@ class encoder(torch.nn.Module):
             x = getattr(self, f'layer{2+i}')(x)
         x = self.last_pool(x)
         mu = self.mean_fc(x.flatten(1))
-        var = self.var_fc(x.flatten(1))
+        var = self.var_fc(x.flatten(1)) if self.var_fc is not None else None
 
         return mu, var
     
@@ -143,17 +143,21 @@ class decoder(torch.nn.Module):
         return x
     
 class vae(torch.nn.Module):
-    def __init__(self, encoder_blocks, decoder_blocks, encoder_base_exp, decoder_base_exp, latent_dim, last_down, im_channel):
+    def __init__(self, encoder_blocks, decoder_blocks, encoder_base_exp, decoder_base_exp, latent_dim, last_down, im_channel, use_vae):
         super().__init__()
         self.latent_dim = latent_dim
-        self.encoder = encoder(encoder_blocks, latent_dim, encoder_base_exp, last_down, im_channel)
+        self.use_vae = use_vae
+        self.encoder = encoder(encoder_blocks, latent_dim, encoder_base_exp, last_down, im_channel, use_vae)
         self.decoder = decoder(decoder_blocks, latent_dim, decoder_base_exp, last_down, im_channel)
 
 
     def sample(self, mu, log_var):
-        var = torch.exp(0.5 * log_var)
-        z = torch.randn_like(mu)
-        z = var * z + mu
+        if log_var is not None:
+            var = torch.exp(0.5 * log_var)
+            z = torch.randn_like(mu)
+            z = var * z + mu
+        else:
+            z = mu
         return z
 
 
